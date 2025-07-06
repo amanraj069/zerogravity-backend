@@ -5,6 +5,7 @@ const cookieParser = require("cookie-parser");
 require("dotenv").config();
 
 const authRoutes = require("./routes/auth");
+const waitlistRoutes = require("./routes/waitlist");
 
 const app = express();
 const PORT = process.env.PORT || 9000;
@@ -34,6 +35,7 @@ mongoose
 
 // Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/waitlist", waitlistRoutes);
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
