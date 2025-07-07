@@ -1,7 +1,12 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const Settings = require("../models/Settings");
 const { authenticateToken } = require("../middleware/auth");
+const {
+  setUserSessionCookies,
+  clearUserSessionCookies,
+} = require("../utils/sessionUtils");
 
 const router = express.Router();
 
@@ -12,21 +17,22 @@ const generateToken = (userId) => {
   });
 };
 
-// Set token cookie
-const setTokenCookie = (res, token) => {
-  res.cookie("token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-  });
-};
-
 // @route   POST /api/auth/signup
 // @desc    Register a new user
 // @access  Public
 router.post("/signup", async (req, res) => {
   try {
+    // Check if signup is enabled
+    const signupSetting = await Settings.findOne({ key: "signupEnabled" });
+    const signupEnabled = signupSetting ? signupSetting.value : false;
+
+    if (!signupEnabled) {
+      return res.status(403).json({
+        success: false,
+        message: "Signup is currently disabled",
+      });
+    }
+
     const { username, email, password, name } = req.body;
 
     // Validate required fields
@@ -72,14 +78,15 @@ router.post("/signup", async (req, res) => {
 
     await user.save();
 
-    // Generate token
-    const token = generateToken(user._id);
-    setTokenCookie(res, token);
+    // Generate token and set session cookies using custom userId
+    const token = generateToken(user.userId);
+    setUserSessionCookies(res, user.userId, token);
 
     res.status(201).json({
       success: true,
       message: "User registered successfully",
       user: user.toJSON(),
+      userId: user.userId,
       token,
     });
   } catch (error) {
@@ -142,14 +149,15 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Generate token
-    const token = generateToken(user._id);
-    setTokenCookie(res, token);
+    // Generate token and set session cookies using custom userId
+    const token = generateToken(user.userId);
+    setUserSessionCookies(res, user.userId, token);
 
     res.json({
       success: true,
       message: "Login successful",
       user: user.toJSON(),
+      userId: user.userId,
       token,
     });
   } catch (error) {
@@ -164,7 +172,7 @@ router.post("/login", async (req, res) => {
 // @desc    Logout user
 // @access  Private
 router.post("/logout", (req, res) => {
-  res.clearCookie("token");
+  clearUserSessionCookies(res);
   res.json({
     success: true,
     message: "Logged out successfully",
@@ -178,6 +186,7 @@ router.get("/me", authenticateToken, (req, res) => {
   res.json({
     success: true,
     user: req.user,
+    userId: req.user.userId,
   });
 });
 
@@ -189,6 +198,7 @@ router.get("/verify", authenticateToken, (req, res) => {
     success: true,
     message: "Token is valid",
     user: req.user,
+    userId: req.user.userId,
   });
 });
 
@@ -236,6 +246,129 @@ router.get("/check-username/:username", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server error during username validation",
+    });
+  }
+});
+
+// @route   GET /api/auth/signup-status
+// @desc    Get signup enabled status
+// @access  Public
+router.get("/signup-status", async (req, res) => {
+  try {
+    const setting = await Settings.findOne({ key: "signupEnabled" });
+    const enabled = setting ? setting.value : false; // Default to false if not set
+
+    res.json({
+      success: true,
+      enabled: enabled,
+    });
+  } catch (error) {
+    console.error("Get signup status error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+// @route   POST /api/auth/toggle-signup
+// @desc    Toggle signup enabled status (Admin only)
+// @access  Private
+router.post("/toggle-signup", authenticateToken, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+
+    // Update or create the setting
+    await Settings.findOneAndUpdate(
+      { key: "signupEnabled" },
+      { value: enabled, updatedAt: new Date() },
+      { upsert: true, new: true }
+    );
+
+    res.json({
+      success: true,
+      enabled: enabled,
+      message: `Signup ${enabled ? "enabled" : "disabled"} successfully`,
+    });
+  } catch (error) {
+    console.error("Toggle signup error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+// @route   GET /api/auth/current-user-id
+// @desc    Get current user ID from cookies (for frontend convenience)
+// @access  Public
+router.get("/current-user-id", (req, res) => {
+  const userId = req.cookies.userId;
+
+  if (!userId) {
+    return res.status(404).json({
+      success: false,
+      message: "No user ID found in cookies",
+      userId: null,
+    });
+  }
+
+  res.json({
+    success: true,
+    userId: userId,
+  });
+});
+
+// @route   GET /api/auth/session-status
+// @desc    Check if user has a valid session
+// @access  Public
+router.get("/session-status", async (req, res) => {
+  try {
+    const token = req.cookies.token;
+    const userId = req.cookies.userId;
+
+    if (!token || !userId) {
+      return res.json({
+        success: true,
+        isLoggedIn: false,
+        message: "No active session found",
+      });
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Check if userId matches
+    if (decoded.userId !== userId) {
+      return res.json({
+        success: true,
+        isLoggedIn: false,
+        message: "Session mismatch",
+      });
+    }
+
+    // Get user to verify they still exist and are active
+    const user = await User.findOne({ userId: userId }).select("-password");
+
+    if (!user || !user.isActive) {
+      return res.json({
+        success: true,
+        isLoggedIn: false,
+        message: "User not found or inactive",
+      });
+    }
+
+    res.json({
+      success: true,
+      isLoggedIn: true,
+      userId: userId,
+      user: user.toJSON(),
+    });
+  } catch (error) {
+    res.json({
+      success: true,
+      isLoggedIn: false,
+      message: "Invalid session",
     });
   }
 });

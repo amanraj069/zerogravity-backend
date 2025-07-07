@@ -1,8 +1,24 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
+// Function to generate random userId
+const generateUserId = () => {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let result = "";
+  for (let i = 0; i < 16; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
+
 const userSchema = new mongoose.Schema(
   {
+    userId: {
+      type: String,
+      unique: true,
+      length: 16,
+    },
     username: {
       type: String,
       required: [true, "Username is required"],
@@ -49,6 +65,38 @@ const userSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Ensure userId is unique before saving
+userSchema.pre("save", async function (next) {
+  // Always generate userId for new users or if userId is missing
+  if (this.isNew || !this.userId) {
+    let isUnique = false;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (!isUnique && attempts < maxAttempts) {
+      try {
+        this.userId = generateUserId();
+
+        const existingUser = await this.constructor.findOne({
+          userId: this.userId,
+        });
+        if (!existingUser) {
+          isUnique = true;
+        } else {
+          attempts++;
+        }
+      } catch (error) {
+        return next(error);
+      }
+    }
+
+    if (!isUnique) {
+      return next(new Error("Failed to generate unique userId"));
+    }
+  }
+  next();
+});
 
 // Validate username format before saving
 userSchema.pre("save", async function (next) {
