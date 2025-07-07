@@ -105,8 +105,14 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
-  console.log(`📡 Available at: ${process.env.NODE_ENV === 'production' ? 'https://api-zerogravity.onrender.com' : `http://localhost:${PORT}`}`);
+  console.log(
+    `📡 Available at: ${
+      process.env.NODE_ENV === "production"
+        ? "https://api-zerogravity.onrender.com"
+        : `http://localhost:${PORT}`
+    }`
+  );
 });
