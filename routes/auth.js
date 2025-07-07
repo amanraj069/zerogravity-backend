@@ -276,14 +276,29 @@ router.get("/signup-status", async (req, res) => {
 // @access  Private
 router.post("/toggle-signup", authenticateToken, async (req, res) => {
   try {
+    console.log("Toggle signup request:", {
+      userId: req.userId,
+      enabled: req.body.enabled,
+      userAgent: req.headers["user-agent"],
+    });
+
     const { enabled } = req.body;
 
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid enabled value. Must be boolean.",
+      });
+    }
+
     // Update or create the setting
-    await Settings.findOneAndUpdate(
+    const updatedSetting = await Settings.findOneAndUpdate(
       { key: "signupEnabled" },
       { value: enabled, updatedAt: new Date() },
       { upsert: true, new: true }
     );
+
+    console.log("Setting updated:", updatedSetting);
 
     res.json({
       success: true,
@@ -371,6 +386,32 @@ router.get("/session-status", async (req, res) => {
       message: "Invalid session",
     });
   }
+});
+
+// @route   GET /api/auth/debug
+// @desc    Debug endpoint to check cookies and headers
+// @access  Public
+router.get("/debug", (req, res) => {
+  console.log("=== DEBUG ENDPOINT ===");
+  console.log("Request headers:", req.headers);
+  console.log("Request cookies:", req.cookies);
+  console.log("Request origin:", req.headers.origin);
+  console.log("Request user-agent:", req.headers["user-agent"]);
+
+  res.json({
+    success: true,
+    debug: {
+      cookies: req.cookies,
+      headers: {
+        origin: req.headers.origin,
+        userAgent: req.headers["user-agent"],
+        authorization: req.headers.authorization,
+        contentType: req.headers["content-type"],
+      },
+      hasToken: !!req.cookies.token,
+      hasUserId: !!req.cookies.userId,
+    },
+  });
 });
 
 module.exports = router;

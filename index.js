@@ -33,8 +33,18 @@ if (process.env.FRONTEND_URL) {
 // Middleware
 app.use(
   cors({
-    origin: corsOrigins,
-    credentials: true,
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+
+      if (corsOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        console.log("CORS blocked origin:", origin);
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true, // This is crucial for cookies
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
@@ -42,8 +52,12 @@ app.use(
       "X-Requested-With",
       "Accept",
       "Origin",
+      "Cache-Control",
+      "Pragma",
     ],
+    exposedHeaders: ["Set-Cookie"],
     optionsSuccessStatus: 200,
+    preflightContinue: false,
   })
 );
 app.use(express.json());
@@ -52,13 +66,17 @@ app.use(cookieParser());
 
 // Handle preflight requests
 app.options("*", (req, res) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin);
+  const origin = req.headers.origin;
+  if (corsOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
   res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
   res.header(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, Content-Length, X-Requested-With, Accept, Origin"
+    "Content-Type, Authorization, Content-Length, X-Requested-With, Accept, Origin, Cache-Control, Pragma"
   );
   res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Max-Age", "86400"); // 24 hours
   res.sendStatus(200);
 });
 

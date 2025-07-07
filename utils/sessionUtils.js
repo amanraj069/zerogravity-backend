@@ -22,15 +22,17 @@ const generateUserId = () => {
 const COOKIE_CONFIG = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
-  sameSite: "strict",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // Allow cross-origin cookies
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  domain: process.env.NODE_ENV === "production" ? undefined : undefined, // Don't set domain for localhost
 };
 
 const USER_ID_COOKIE_CONFIG = {
   httpOnly: false, // Allow frontend access
   secure: process.env.NODE_ENV === "production",
-  sameSite: "strict",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // Allow cross-origin cookies
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  domain: process.env.NODE_ENV === "production" ? undefined : undefined, // Don't set domain for localhost
 };
 
 /**
@@ -40,11 +42,16 @@ const USER_ID_COOKIE_CONFIG = {
  * @param {String} token - JWT token
  */
 const setUserSessionCookies = (res, userId, token) => {
+  console.log("Setting cookies for user:", userId);
+  console.log("Cookie config:", { COOKIE_CONFIG, USER_ID_COOKIE_CONFIG });
+
   // Set httpOnly token cookie for security
   res.cookie("token", token, COOKIE_CONFIG);
 
   // Set userId cookie for frontend convenience
   res.cookie("userId", userId.toString(), USER_ID_COOKIE_CONFIG);
+
+  console.log("Cookies set successfully");
 };
 
 /**
@@ -71,11 +78,17 @@ const getUserIdFromCookies = (req) => {
  * @returns {String|null} - JWT token or null if not found
  */
 const getTokenFromRequest = (req) => {
-  return (
+  console.log("Extracting token from request...");
+  console.log("Request cookies:", req.cookies);
+  console.log("Authorization header:", req.header("Authorization"));
+
+  const token =
     req.cookies.token ||
     req.header("Authorization")?.replace("Bearer ", "") ||
-    null
-  );
+    null;
+
+  console.log("Extracted token:", token ? "Token found" : "No token found");
+  return token;
 };
 
 /**
