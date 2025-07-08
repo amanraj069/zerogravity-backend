@@ -56,6 +56,18 @@ const userSchema = new mongoose.Schema(
       trim: true,
       maxlength: [50, "Last name cannot exceed 50 characters"],
     },
+    role: {
+      type: String,
+      enum: ["student", "admin"],
+      default: "student",
+      required: [true, "Role is required"],
+    },
+    subscription: {
+      type: String,
+      enum: ["basic", "pro"],
+      default: "basic",
+      required: [true, "Subscription is required"],
+    },
     isActive: {
       type: Boolean,
       default: true,

@@ -7,6 +7,7 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "migrate": "node migrate-users.js",
+    "migrate-roles": "node migrate-role-subscription.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
