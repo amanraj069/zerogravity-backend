@@ -34,7 +34,4 @@ const waitlistSchema = new mongoose.Schema(
   }
 );
 
-// Index for email uniqueness and faster queries
-waitlistSchema.index({ email: 1 });
-
 module.exports = mongoose.model("Waitlist", waitlistSchema);

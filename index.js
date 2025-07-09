@@ -6,6 +6,7 @@ require("dotenv").config();
 
 const authRoutes = require("./routes/auth");
 const waitlistRoutes = require("./routes/waitlist");
+const goalsRoutes = require("./routes/goals");
 
 const app = express();
 const PORT = process.env.PORT || 9000;
@@ -95,6 +96,7 @@ mongoose
 console.log("Registering API routes...");
 app.use("/api/auth", authRoutes);
 app.use("/api/waitlist", waitlistRoutes);
+app.use("/api/goals", goalsRoutes);
 console.log("API routes registered successfully");
 
 // Health check endpoint
