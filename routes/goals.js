@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const Goal = require("../models/Goal");
 const { authenticateToken } = require("../middleware/auth");
 
@@ -78,12 +79,12 @@ router.post("/", authenticateToken, async (req, res) => {
     }
 
     // Generate unique IDs for milestones and subtasks
-    const processedMilestones = milestones.map((milestone, index) => ({
+    const processedMilestones = milestones.map((milestone) => ({
       ...milestone,
-      id: `${Date.now()}-milestone-${index}`,
-      subtasks: (milestone.subtasks || []).map((subtask, subIndex) => ({
+      id: crypto.randomUUID(),
+      subtasks: (milestone.subtasks || []).map((subtask) => ({
         ...subtask,
-        id: `${Date.now()}-subtask-${index}-${subIndex}`,
+        id: crypto.randomUUID(),
       })),
     }));
 
@@ -129,18 +130,17 @@ router.put("/:id", authenticateToken, async (req, res) => {
       });
     }
 
-    // Update fields
-    const allowedUpdates = [
+    // Update basic fields
+    const basicFields = [
       "title",
       "description",
       "category",
       "priority",
       "targetDate",
       "completed",
-      "milestones",
     ];
 
-    allowedUpdates.forEach((field) => {
+    basicFields.forEach((field) => {
       if (req.body[field] !== undefined) {
         if (field === "targetDate") {
           goal[field] = new Date(req.body[field]);
@@ -149,6 +149,48 @@ router.put("/:id", authenticateToken, async (req, res) => {
         }
       }
     });
+
+    // Handle milestones update with proper ID management
+    if (req.body.milestones !== undefined) {
+      const updatedMilestones = req.body.milestones.map(
+        (incomingMilestone, index) => {
+          // Try to match with existing milestone by index first, then by title
+          let existingMilestone = goal.milestones[index];
+
+          // If index-based matching fails, try to find by title
+          if (!existingMilestone) {
+            existingMilestone = goal.milestones.find(
+              (existing) => existing.title === incomingMilestone.title
+            );
+          }
+
+          if (existingMilestone) {
+            // Update existing milestone while preserving ID and completion status
+            return {
+              ...existingMilestone.toObject(),
+              title: incomingMilestone.title,
+              description: incomingMilestone.description || "",
+              targetDate: new Date(incomingMilestone.targetDate),
+              // Preserve existing completion status and subtasks
+            };
+          } else {
+            // Create new milestone with generated ID
+            return {
+              id: crypto.randomUUID(),
+              title: incomingMilestone.title,
+              description: incomingMilestone.description || "",
+              targetDate: new Date(incomingMilestone.targetDate),
+              completed: false,
+              subtasks: [],
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+          }
+        }
+      );
+
+      goal.milestones = updatedMilestones;
+    }
 
     await goal.save();
 
@@ -302,6 +344,211 @@ router.patch(
       res.status(500).json({
         success: false,
         message: "Error toggling subtask completion",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Add subtasks to a milestone
+router.post(
+  "/:goalId/milestones/:milestoneId/subtasks",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { subtasks } = req.body;
+
+      if (!Array.isArray(subtasks)) {
+        return res.status(400).json({
+          success: false,
+          message: "Subtasks must be an array",
+        });
+      }
+
+      const goal = await Goal.findOne({
+        _id: req.params.goalId,
+        userId: req.user.userId,
+      });
+
+      if (!goal) {
+        return res.status(404).json({
+          success: false,
+          message: "Goal not found",
+        });
+      }
+
+      const milestone = goal.milestones.find(
+        (m) => m.id === req.params.milestoneId
+      );
+      if (!milestone) {
+        return res.status(404).json({
+          success: false,
+          message: "Milestone not found",
+        });
+      }
+
+      // Generate IDs for new subtasks and add them
+      const newSubtasks = subtasks
+        .filter((subtask) => subtask.title && subtask.title.trim()) // Only add non-empty subtasks
+        .map((subtask, index) => ({
+          id: crypto.randomUUID(),
+          title: subtask.title.trim(),
+          completed: false,
+          createdAt: new Date(),
+        }));
+
+      milestone.subtasks = newSubtasks;
+      await goal.save();
+
+      res.json({
+        success: true,
+        data: goal,
+        message: "Subtasks updated successfully",
+      });
+    } catch (error) {
+      console.error("Error updating subtasks:", error);
+      res.status(500).json({
+        success: false,
+        message: "Error updating subtasks",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Update subtasks for a milestone (replaces all subtasks)
+router.put(
+  "/:goalId/milestones/:milestoneId/subtasks",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { subtasks } = req.body;
+
+      if (!Array.isArray(subtasks)) {
+        return res.status(400).json({
+          success: false,
+          message: "Subtasks must be an array",
+        });
+      }
+
+      const goal = await Goal.findOne({
+        _id: req.params.goalId,
+        userId: req.user.userId,
+      });
+
+      if (!goal) {
+        return res.status(404).json({
+          success: false,
+          message: "Goal not found",
+        });
+      }
+
+      const milestone = goal.milestones.find(
+        (m) => m.id === req.params.milestoneId
+      );
+      if (!milestone) {
+        return res.status(404).json({
+          success: false,
+          message: "Milestone not found",
+        });
+      }
+
+      // Process subtasks - preserve existing IDs where possible, create new ones for new subtasks
+      const updatedSubtasks = subtasks
+        .filter((subtask) => subtask.title && subtask.title.trim()) // Only include non-empty subtasks
+        .map((incomingSubtask) => {
+          // Try to find existing subtask by title to preserve completion status
+          const existingSubtask = milestone.subtasks.find(
+            (existing) => existing.title === incomingSubtask.title
+          );
+
+          if (existingSubtask) {
+            // Preserve existing subtask but allow title updates
+            return {
+              ...existingSubtask.toObject(),
+              title: incomingSubtask.title.trim(),
+            };
+          } else {
+            // Create new subtask
+            return {
+              id: crypto.randomUUID(),
+              title: incomingSubtask.title.trim(),
+              completed: false,
+              createdAt: new Date(),
+            };
+          }
+        });
+
+      milestone.subtasks = updatedSubtasks;
+      await goal.save();
+
+      res.json({
+        success: true,
+        data: goal,
+        message: "Subtasks updated successfully",
+      });
+    } catch (error) {
+      console.error("Error updating subtasks:", error);
+      res.status(500).json({
+        success: false,
+        message: "Error updating subtasks",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Delete a specific subtask
+router.delete(
+  "/:goalId/milestones/:milestoneId/subtasks/:subtaskId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const goal = await Goal.findOne({
+        _id: req.params.goalId,
+        userId: req.user.userId,
+      });
+
+      if (!goal) {
+        return res.status(404).json({
+          success: false,
+          message: "Goal not found",
+        });
+      }
+
+      const milestone = goal.milestones.find(
+        (m) => m.id === req.params.milestoneId
+      );
+      if (!milestone) {
+        return res.status(404).json({
+          success: false,
+          message: "Milestone not found",
+        });
+      }
+
+      const subtaskIndex = milestone.subtasks.findIndex(
+        (s) => s.id === req.params.subtaskId
+      );
+      if (subtaskIndex === -1) {
+        return res.status(404).json({
+          success: false,
+          message: "Subtask not found",
+        });
+      }
+
+      milestone.subtasks.splice(subtaskIndex, 1);
+      await goal.save();
+
+      res.json({
+        success: true,
+        data: goal,
+        message: "Subtask deleted successfully",
+      });
+    } catch (error) {
+      console.error("Error deleting subtask:", error);
+      res.status(500).json({
+        success: false,
+        message: "Error deleting subtask",
         error: error.message,
       });
     }
