@@ -7,6 +7,7 @@ require("dotenv").config();
 const authRoutes = require("./routes/auth");
 const waitlistRoutes = require("./routes/waitlist");
 const goalsRoutes = require("./routes/goals");
+const dailyTasksRoutes = require("./routes/dailyTasks");
 
 const app = express();
 const PORT = process.env.PORT || 9000;
@@ -100,6 +101,7 @@ console.log("Registering API routes...");
 app.use("/api/auth", authRoutes);
 app.use("/api/waitlist", waitlistRoutes);
 app.use("/api/goals", goalsRoutes);
+app.use("/api/daily-tasks", dailyTasksRoutes);
 console.log("API routes registered successfully");
 
 // Health check endpoint
