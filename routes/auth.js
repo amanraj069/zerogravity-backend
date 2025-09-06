@@ -6,6 +6,7 @@ const { authenticateToken } = require("../middleware/auth");
 const {
   setUserSessionCookies,
   clearUserSessionCookies,
+  getTokenFromRequest,
 } = require("../utils/sessionUtils");
 
 const router = express.Router();
@@ -339,10 +340,11 @@ router.get("/current-user-id", (req, res) => {
 // @access  Public
 router.get("/session-status", async (req, res) => {
   try {
-    const token = req.cookies.token;
-    const userId = req.cookies.userId;
+    // Use the same token extraction logic as other authenticated endpoints
+    const token = getTokenFromRequest(req);
+    const userId = req.cookies.userId; // Keep userId from cookies for now
 
-    if (!token || !userId) {
+    if (!token) {
       return res.json({
         success: true,
         isLoggedIn: false,
@@ -353,8 +355,11 @@ router.get("/session-status", async (req, res) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Check if userId matches
-    if (decoded.userId !== userId) {
+    // Use userId from token if cookie userId is not available or doesn't match
+    const actualUserId = userId || decoded.userId;
+
+    // Check if userId from cookie matches token (if both exist)
+    if (userId && decoded.userId !== userId) {
       return res.json({
         success: true,
         isLoggedIn: false,
@@ -363,7 +368,9 @@ router.get("/session-status", async (req, res) => {
     }
 
     // Get user to verify they still exist and are active
-    const user = await User.findOne({ userId: userId }).select("-password");
+    const user = await User.findOne({ userId: actualUserId }).select(
+      "-password"
+    );
 
     if (!user || !user.isActive) {
       return res.json({
@@ -376,7 +383,7 @@ router.get("/session-status", async (req, res) => {
     res.json({
       success: true,
       isLoggedIn: true,
-      userId: userId,
+      userId: actualUserId,
       user: user.toJSON(),
     });
   } catch (error) {

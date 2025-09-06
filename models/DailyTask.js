@@ -103,78 +103,85 @@ dailyTaskSchema.statics.getActiveTasks = async function (userId, date = null) {
   }).sort({ createdAt: -1 });
 };
 
-// Static method to calculate daily streak
+// Static method to calculate daily streak based on per-day completions
 dailyTaskSchema.statics.calculateDailyStreak = async function (userId) {
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const DailyStats = require("./DailyStats");
 
-  // Get all active tasks for the user
-  const activeTasks = await this.find({
-    userId: userId,
-    isActive: true,
-    dateStarted: { $lte: today },
-    dateEnded: { $gte: yesterday },
-  });
+  const toDayStartUTC = (date) => {
+    const d = new Date(date);
+    d.setUTCHours(0, 0, 0, 0);
+    return d;
+  };
 
-  if (activeTasks.length === 0) {
-    return { currentStreak: 0, longestStreak: 0 };
-  }
+  const getActiveTasksForDate = async (date) => {
+    return this.find({
+      userId: userId,
+      isActive: true,
+      dateStarted: { $lte: date },
+      dateEnded: { $gte: date },
+    }).select({ _id: 1 });
+  };
 
-  // Check if any task has lastCompletedDate less than yesterday
-  const hasIncompleteYesterday = activeTasks.some((task) => {
-    if (!task.lastCompletedDate) return true;
+  const isDayFullyComplete = async (date) => {
+    const day = toDayStartUTC(date);
+    const tasks = await getActiveTasksForDate(day);
+    if (tasks.length === 0) return false;
 
-    const lastCompleted = new Date(task.lastCompletedDate);
-    lastCompleted.setHours(0, 0, 0, 0);
-    yesterday.setHours(0, 0, 0, 0);
+    const taskIds = tasks.map((t) => t._id);
+    const completions = await DailyStats.find({
+      userId: userId,
+      taskId: { $in: taskIds },
+      completedDate: day,
+    }).select({ _id: 1, taskId: 1 });
 
-    return lastCompleted < yesterday;
-  });
+    return completions.length === taskIds.length;
+  };
 
-  if (hasIncompleteYesterday) {
-    return { currentStreak: 0, longestStreak: 0 };
-  }
+  const today = toDayStartUTC(new Date());
 
-  // Calculate current streak
+  // Walk backward to find the most recent fully completed day, then count consecutive days
   let currentStreak = 0;
-  const checkDate = new Date(today);
+  let cursor = new Date(today);
+  const MAX_DAYS_TO_SCAN = 365; // safety bound
+  let anchored = false;
 
-  while (true) {
-    checkDate.setDate(checkDate.getDate() - 1);
+  for (let i = 0; i < MAX_DAYS_TO_SCAN; i++) {
+    const dayStart = toDayStartUTC(cursor);
+    const tasks = await getActiveTasksForDate(dayStart);
 
-    // Get tasks that were active on this date
-    const tasksForDate = activeTasks.filter((task) => {
-      const taskStart = new Date(task.dateStarted);
-      const taskEnd = new Date(task.dateEnded);
-      taskStart.setHours(0, 0, 0, 0);
-      taskEnd.setHours(0, 0, 0, 0);
-      checkDate.setHours(0, 0, 0, 0);
-
-      return taskStart <= checkDate && taskEnd >= checkDate;
-    });
-
-    if (tasksForDate.length === 0) break;
-
-    // Check if all tasks for this date were completed
-    const allCompleted = tasksForDate.every((task) => {
-      if (!task.lastCompletedDate) return false;
-
-      const lastCompleted = new Date(task.lastCompletedDate);
-      lastCompleted.setHours(0, 0, 0, 0);
-
-      return lastCompleted >= checkDate;
-    });
-
-    if (allCompleted) {
-      currentStreak++;
-    } else {
-      break;
+    // If no tasks on this day: if not anchored, keep scanning back; if anchored, we stop
+    if (tasks.length === 0) {
+      if (anchored) break;
+      cursor.setDate(cursor.getDate() - 1);
+      continue;
     }
+
+    const taskIds = tasks.map((t) => t._id);
+    const completions = await DailyStats.find({
+      userId: userId,
+      taskId: { $in: taskIds },
+      completedDate: dayStart,
+    }).select({ _id: 1, taskId: 1 });
+
+    if (completions.length === taskIds.length) {
+      // This day is fully complete; start or continue the streak
+      anchored = true;
+      currentStreak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+      continue;
+    }
+
+    // Day is not fully complete
+    if (!anchored) {
+      // Haven't found the anchor yet; keep scanning back to locate the most recent fully complete day
+      cursor.setDate(cursor.getDate() - 1);
+      continue;
+    }
+
+    // We already anchored and hit an incomplete day; streak ends
+    break;
   }
 
-  // For now, longest streak equals current streak
-  // In a more complex implementation, you could track this separately
   return {
     currentStreak: currentStreak,
     longestStreak: Math.max(currentStreak, 0),

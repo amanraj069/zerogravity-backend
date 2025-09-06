@@ -8,9 +8,26 @@ const authRoutes = require("./routes/auth");
 const waitlistRoutes = require("./routes/waitlist");
 const goalsRoutes = require("./routes/goals");
 const dailyTasksRoutes = require("./routes/dailyTasks");
+const quizRoutes = require("./routes/quizzes");
 
 const app = express();
 const PORT = process.env.PORT || 9000;
+const http = require("http");
+const server = http.createServer(app);
+const { Server } = require("socket.io");
+const io = new Server(server, {
+  cors: {
+    origin: function (origin, callback) {
+      // Allow requests with no origin
+      if (!origin) return callback(null, true);
+      // Reuse existing CORS origins list below
+      callback(null, true);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  },
+});
+app.set("io", io);
 
 // CORS configuration - support both development and production
 const corsOrigins = [
@@ -102,6 +119,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/waitlist", waitlistRoutes);
 app.use("/api/goals", goalsRoutes);
 app.use("/api/daily-tasks", dailyTasksRoutes);
+app.use("/api/quizzes", quizRoutes);
 console.log("API routes registered successfully");
 
 // Health check endpoint
@@ -130,7 +148,13 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+io.on("connection", (socket) => {
+  socket.on("quiz:join-room", ({ quizId }) => {
+    if (quizId) socket.join(`quiz:${quizId}`);
+  });
+});
+
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
   console.log(

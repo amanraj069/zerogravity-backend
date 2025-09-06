@@ -195,6 +195,7 @@ router.patch("/:id/toggle-completion", authenticateToken, async (req, res) => {
   try {
     const { date } = req.body;
     const completionDate = date ? new Date(date) : new Date();
+    completionDate.setUTCHours(0, 0, 0, 0);
 
     const task = await DailyTask.findOne({
       _id: req.params.id,
@@ -240,6 +241,7 @@ router.patch("/:id/toggle-completion", authenticateToken, async (req, res) => {
 
     // Check if all daily tasks are completed for today
     const todaysDate = date ? new Date(date) : new Date();
+    todaysDate.setUTCHours(0, 0, 0, 0);
     const allTasks = await DailyTask.getActiveTasks(
       req.user.userId,
       todaysDate
@@ -277,12 +279,17 @@ router.patch("/:id/toggle-completion", authenticateToken, async (req, res) => {
       );
     }
 
+    // Recompute streak after this toggle to reflect increases/decreases
+    const streakInfo = await DailyTask.calculateDailyStreak(req.user.userId);
+
     res.json({
       success: true,
       data: {
         taskId: task._id,
         isCompleted: !isCurrentlyCompleted,
         allTasksCompleted: allCompleted,
+        currentStreak: streakInfo.currentStreak,
+        longestStreak: streakInfo.longestStreak,
       },
       message: `Task marked as ${
         !isCurrentlyCompleted ? "completed" : "incomplete"
@@ -346,7 +353,7 @@ router.get("/streak/info", authenticateToken, async (req, res) => {
 
     const today = new Date();
     const todayStart = new Date(today);
-    todayStart.setHours(0, 0, 0, 0);
+    todayStart.setUTCHours(0, 0, 0, 0);
 
     const todayStats = await DailyStats.getUserStats(
       req.user.userId,

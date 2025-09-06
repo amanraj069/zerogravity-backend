@@ -42,7 +42,7 @@ dailyStatsSchema.statics.markTaskCompleted = async function (
   date = null
 ) {
   const completionDate = date ? new Date(date) : new Date();
-  completionDate.setHours(0, 0, 0, 0); // Set to start of day
+  completionDate.setUTCHours(0, 0, 0, 0); // Normalize to UTC start of day
 
   try {
     const result = await this.findOneAndUpdate(
@@ -84,7 +84,7 @@ dailyStatsSchema.statics.unmarkTaskCompleted = async function (
   date = null
 ) {
   const completionDate = date ? new Date(date) : new Date();
-  completionDate.setHours(0, 0, 0, 0); // Set to start of day
+  completionDate.setUTCHours(0, 0, 0, 0); // Normalize to UTC start of day
 
   return await this.findOneAndDelete({
     userId: userId,
@@ -100,7 +100,7 @@ dailyStatsSchema.statics.isTaskCompleted = async function (
   date = null
 ) {
   const checkDate = date ? new Date(date) : new Date();
-  checkDate.setHours(0, 0, 0, 0); // Set to start of day
+  checkDate.setUTCHours(0, 0, 0, 0); // Normalize to UTC start of day
 
   const completion = await this.findOne({
     userId: userId,
@@ -121,12 +121,16 @@ dailyStatsSchema.statics.getUserStats = async function (
 
   if (startDate) {
     match.completedDate = match.completedDate || {};
-    match.completedDate.$gte = new Date(startDate);
+    const s = new Date(startDate);
+    s.setUTCHours(0, 0, 0, 0);
+    match.completedDate.$gte = s;
   }
 
   if (endDate) {
     match.completedDate = match.completedDate || {};
-    match.completedDate.$lte = new Date(endDate);
+    const e = new Date(endDate);
+    e.setUTCHours(23, 59, 59, 999);
+    match.completedDate.$lte = e;
   }
 
   return await this.find(match).sort({ completedDate: -1 });
