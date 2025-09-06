@@ -5,6 +5,17 @@ const QuizUser = require("../models/QuizUser");
 
 const router = express.Router();
 
+// Generate ID function (same as in models)
+const generateId = () => {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let result = "";
+  for (let i = 0; i < 16; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
+
 // Guard: only pro users can create/manage quizzes
 const requirePro = (req, res, next) => {
   console.log("requirePro middleware - user:", req.user);
@@ -319,6 +330,54 @@ router.post("/join", async (req, res) => {
     });
   } catch (err) {
     console.error("Join quiz error", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// Leave quiz (remove participant)
+router.post("/:quizId/leave", async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const { quizUserId } = req.body || {};
+
+    if (!quizUserId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "quizUserId is required" });
+    }
+
+    const quiz = await Quiz.findOne({ quizId });
+    if (!quiz) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Quiz not found" });
+    }
+
+    // Remove the participant from the quiz
+    const participant = await QuizUser.findOneAndDelete({
+      quizId,
+      quizUserId,
+    });
+
+    if (!participant) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Participant not found" });
+    }
+
+    // Notify host via socket that participant left
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`quiz:${quiz.quizId}`).emit("participant:left", {
+        quizId: quiz.quizId,
+        quizUserId,
+        participantName: participant.participantName,
+      });
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Leave quiz error", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
